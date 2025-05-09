@@ -1,8 +1,18 @@
 from fastapi import FastAPI
 from utils.redis_client import get_redis
+from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI()
 redis_client = get_redis()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Permite solicitudes desde cualquier origen. Cambia "*" por dominios específicos si es necesario.
+    allow_credentials=True,
+    allow_methods=["*"],  # Permite todos los métodos HTTP (GET, POST, etc.).
+    allow_headers=["*"],  # Permite todos los encabezados.
+)
+
 
 @app.get("/nodes")
 async def get_nodes():

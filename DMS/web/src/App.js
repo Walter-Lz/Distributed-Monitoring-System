@@ -11,9 +11,9 @@ function App() {
     const fetchData = async () => {
       try {
         const [nodesResponse, tasksResponse, resultsResponse] = await Promise.all([
-          axios.get('/nodes'),
-          axios.get('/tasks'),
-          axios.get('/results'),
+        axios.get('http://127.0.0.1:8000/nodes'),
+        axios.get('http://127.0.0.1:8000/tasks'),
+        axios.get('http://127.0.0.1:8000/results'),
         ]);
 
         setNodes(nodesResponse.data);
