@@ -14,7 +14,7 @@ Sistema distribuido para monitoreo y procesamiento distribuido de tareas (transc
 
 Instalación rápida
 
-1. **Clona el repositorio**
+1.Clona el repositorio
    ```bash
    git clone <url-del-repo>
    cd Distributed-Monitoring-System
