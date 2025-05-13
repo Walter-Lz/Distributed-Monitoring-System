@@ -15,21 +15,27 @@ Sistema distribuido para monitoreo y procesamiento distribuido de tareas (transc
 Instalación rápida
 
 1. **Clona el repositorio**
-   bash
+   ```bash
    git clone <url-del-repo>
    cd Distributed-Monitoring-System
+   ```
 2.Levantar redis
+   ```bash
   docker-compose up -d
+```
 3.Dependencias de python
+   ```bash
   cd DMS
   python -m venv venv
   venv\Scripts\activate
   pip install -r requirements.txt
   pip install openai-whisper ffmpeg-python redis psutil fastapi uvicorn
+```
 4.Dependencias del frontend
+  ```bash
   cd web
   npm install
-
+   ```
 ---
 
 Requisitos
@@ -71,7 +77,7 @@ Esta API está construida con FastAPI y expone endpoints HTTP y un WebSocket par
 - **Método:** Conexión WebSocket
 
 #### **Formato de los mensajes recibidos:**
-```json
+   ```json
 {
   "nodes": {
     "node1": {
@@ -91,7 +97,7 @@ Esta API está construida con FastAPI y expone endpoints HTTP y un WebSocket par
     ...
   }
 }
-
+```
 ---
 
 Créditos
