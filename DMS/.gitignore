@@ -1,0 +1,4 @@
+# Ignorar el entorno virtual en la raíz del proyecto
+venv/
+
+start_project.bat
