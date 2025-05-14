@@ -8,6 +8,8 @@ r.flushall()
 AUDIO_DIR = "audios"
 NODE_TIMEOUT = 5 
 
+# Clave para la cola global de tareas sin asignar
+UNASSIGNED_TASKS_QUEUE = "global:unassigned_tasks"
 active_nodes = set()
 node_tasks = {}
 
@@ -29,6 +31,7 @@ def check_node_status(node_id):
         # Verificar el heartbeat y el estado del nodo
         is_alive = time_diff <= NODE_TIMEOUT
         has_valid_stats = all(key in stats for key in ["cpu", "ram", "disk", "status"])
+        
         if not is_alive or not has_valid_stats:
             return False
             
@@ -52,38 +55,34 @@ def handle_node_disconnection(node_id):
         print(f"⚠️ El nodo {node_id} tenía {active_tasks} tarea(s) activa(s) al desconectarse")
         # Intentar recuperar la última tarea asignada
         last_task = r.hget(f"node_stats:{node_id}", "current_task")
-        if last_task:
-            print(f"🔄 Reasignando última tarea activa del nodo {node_id}")
-            pending_tasks.append(last_task)
+        if last_task and last_task not in pending_tasks:  # Evitar duplicados
+            print(f"🔄 Devolviendo última tarea activa a la cola global")
+            r.rpush(UNASSIGNED_TASKS_QUEUE, last_task)
     
     # Limpiar datos del nodo en Redis
     r.delete(f"node_stats:{node_id}")
     r.delete(f"task_queue:{node_id}")
     r.delete(f"results:{node_id}")
     
+    # Devolver todas las tareas pendientes a la cola global
     if pending_tasks:
-        print(f"🔄 Reasignando {len(pending_tasks)} tareas de nodo {node_id}")
+        print(f"🔄 Devolviendo {len(pending_tasks)} tareas a la cola global")
         for task_data in pending_tasks:
-            assign_task(task_data)
+            # Verificar que la tarea no esté ya en la cola global
+            if not r.lrem(UNASSIGNED_TASKS_QUEUE, 0, task_data):
+                r.rpush(UNASSIGNED_TASKS_QUEUE, task_data)
 
 def assign_task(task_data):
-    node = None
-    retry_count = 0
-    MAX_RETRIES = 3  
-    
-    while not node and retry_count <= MAX_RETRIES:
-        node = get_best_node()
-        if not node:
-            print("⏳ Esperando nodos disponibles para asignar tarea...")
-            time.sleep(2)
-            retry_count += 1
-    
+    node = get_best_node()
     if not node:
-        print("❌ No se pudo asignar la tarea después de varios intentos")
         return False
     
+    # Verificar que la tarea no esté ya asignada a otro nodo
+    for key in r.scan_iter("task_queue:*"):
+        if r.lrem(key, 0, task_data) > 0:
+            print(f"⚠️ Tarea encontrada y removida de otro nodo")
+    
     print(f"📤 Asignando tarea a {node}")
-    # Guardar la tarea actual en el estado del nodo
     r.hset(f"node_stats:{node}", "current_task", task_data)
     r.rpush(f"task_queue:{node}", task_data)
     return True
@@ -114,16 +113,19 @@ def get_best_node():
             ram = float(stats.get("ram", 100))
             active_tasks = int(stats.get("tasks", 0))
             
+            # Solo considerar nodos que no estén procesando tareas
+            if active_tasks > 0:
+                continue
+                
             pending_tasks = len(r.lrange(f"task_queue:{node}", 0, -1))
-            total_tasks = active_tasks + pending_tasks
-            
+            if pending_tasks > 0:
+                continue
+                
             resource_score = (cpu + ram) / 2 
-            task_score = total_tasks * 15    
-            load_score = resource_score + task_score
+            load_score = resource_score
             
             node_loads[node] = {
                 "load_score": load_score,
-                "total_tasks": total_tasks,
                 "cpu": cpu,
                 "ram": ram
             }
@@ -133,7 +135,6 @@ def get_best_node():
             continue
 
     if not candidates:
-        print("No hay nodos disponibles o todos están sobrecargados.")
         return None
 
     min_load_node = min(candidates, key=lambda x: node_loads[x]["load_score"])
@@ -142,7 +143,7 @@ def get_best_node():
     for node in candidates:
         load = node_loads[node]
         status = "✓" if node == min_load_node else " "
-        print(f"   {status} Nodo {node}: {load['total_tasks']} tareas | CPU: {load['cpu']}% | RAM: {load['ram']}% | Score: {load['load_score']:.1f}")
+        print(f"   {status} Nodo {node}: CPU: {load['cpu']}% | RAM: {load['ram']}% | Score: {load['load_score']:.1f}")
 
     return min_load_node
 
@@ -152,6 +153,18 @@ def show_node_statuses():
     current_nodes = set()
     disconnected_nodes = set()
     
+    # Mostrar tareas sin asignar
+    unassigned_tasks = r.lrange(UNASSIGNED_TASKS_QUEUE, 0, -1)
+    print("\n📋 Tareas sin asignar:")
+    if unassigned_tasks:
+        for i, task in enumerate(unassigned_tasks, 1):
+            task_data = json.loads(task)
+            print(f"   {i}. Audio {task_data['index']}: {task_data['path']}")
+    else:
+        print("   💤 No hay tareas sin asignar")
+    print(f"\n📊 Total de tareas sin asignar: {len(unassigned_tasks)}")
+    
+    # Mostrar tareas pendientes por nodo
     total_pending = 0
     print("\n📋 Tareas pendientes por nodo:")
     for key in r.scan_iter("task_queue:*"):
@@ -165,8 +178,8 @@ def show_node_statuses():
                 print(f"      {i}. Audio {task_data['index']}: {task_data['path']}")
     
     if total_pending == 0:
-        print("   💤 No hay tareas pendientes")
-    print(f"\n📊 Total de tareas pendientes: {total_pending}")
+        print("   💤 No hay tareas pendientes en nodos")
+    print(f"\n📊 Total de tareas pendientes en nodos: {total_pending}")
     print("\n🖥️ Estado de los nodos:")
     
     # Primera pasada: identificar nodos desconectados
@@ -208,18 +221,48 @@ def show_node_statuses():
         except (ValueError, TypeError):
             print(f"⚠️ Nodo {node} tiene datos de estado inválidos")
 
-# Asignación inicial de tareas
+def try_assign_pending_tasks():
+    """Intenta asignar tareas pendientes a nodos disponibles"""
+    # Verificar cuántas tareas hay sin asignar
+    unassigned_count = r.llen(UNASSIGNED_TASKS_QUEUE)
+    if unassigned_count == 0:
+        return
+
+    # Obtener una tarea sin asignar
+    task = r.rpoplpush(UNASSIGNED_TASKS_QUEUE, "temp:task")
+    if not task:
+        return
+        
+    try:
+        # Intentar asignarla
+        if assign_task(task):
+            # Si se asignó correctamente, eliminar de la cola temporal
+            r.delete("temp:task")
+        else:
+            # Si no se pudo asignar, moverla de vuelta a la cola global
+            r.rpoplpush("temp:task", UNASSIGNED_TASKS_QUEUE)
+    except Exception as e:
+        # En caso de error, asegurar que la tarea vuelva a la cola
+        if r.exists("temp:task"):
+            r.rpoplpush("temp:task", UNASSIGNED_TASKS_QUEUE)
+        print(f"❌ Error al asignar tarea: {e}")
+
+# Poner todas las tareas iniciales en la cola global
+print("\n📝 Inicializando sistema de transcripción...")
 for idx, filename in enumerate(audio_files):
     path = os.path.join(AUDIO_DIR, filename)
     task_data = json.dumps({"index": idx, "path": path})
-    assign_task(task_data)
+    r.rpush(UNASSIGNED_TASKS_QUEUE, task_data)
+
+print(f"✅ {len(audio_files)} tareas agregadas a la cola global")
+print("\n📝 TRANSCRIPCIONES EN TIEMPO REAL:\n")
 
 results = {}
 tasks_completed = False
-print("\n📝 TRANSCRIPCIONES EN TIEMPO REAL:\n")
 
 while True:
     show_node_statuses()
+    try_assign_pending_tasks()
     
     # Procesar resultados si aún hay tareas pendientes
     if not tasks_completed:
@@ -231,18 +274,24 @@ while True:
             res = r.lpop(f"results:{node}")
             if res:
                 data = json.loads(res)
-                index, text = data["index"], data["text"]
+                index = data["index"]
                 if index not in results:
-                    results[index] = text
-                    print(f"📄 Audio {index}:")
-                    print(text)
+                    results[index] = data["text"]
+                    print(f"\n📄 Audio {index}:")
+                    print(data["text"])
+                    print(f"\nTranscrito en {data.get('duration', '?')} segundos")
                     print("\n---\n")
-                r.hincrby(f"node_stats:{node}", "tasks", -1)
         
         # Verificar si se completaron todas las tareas
-        if len(results) == len(audio_files) and not tasks_completed:
+        total_tasks = len(audio_files)
+        completed_tasks = len(results)
+        pending_unassigned = len(r.lrange(UNASSIGNED_TASKS_QUEUE, 0, -1))
+        
+        if completed_tasks == total_tasks and not tasks_completed:
             tasks_completed = True
             print("\n✅ Todas las transcripciones han sido recibidas.")
             print("👀 Sistema en espera de nuevas tareas...\n")
+        else:
+            print(f"\n📊 Progreso: {completed_tasks}/{total_tasks} tareas completadas ({pending_unassigned} sin asignar)")
     
     time.sleep(1)
