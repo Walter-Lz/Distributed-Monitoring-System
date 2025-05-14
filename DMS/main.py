@@ -112,20 +112,24 @@ def get_best_node():
             cpu = float(stats.get("cpu", 100))
             ram = float(stats.get("ram", 100))
             active_tasks = int(stats.get("tasks", 0))
+            max_tasks = int(stats.get("max_tasks", 1))
             
-            # Solo considerar nodos que no estén procesando tareas
-            if active_tasks > 0:
+            # Si el nodo está en su límite de tareas, ignorarlo
+            if active_tasks >= max_tasks:
                 continue
                 
             pending_tasks = len(r.lrange(f"task_queue:{node}", 0, -1))
-            if pending_tasks > 0:
-                continue
-                
-            resource_score = (cpu + ram) / 2 
-            load_score = resource_score
+            total_tasks = active_tasks + pending_tasks
+            
+            # Calcular score basado en recursos y capacidad disponible
+            resource_score = (cpu + ram) / 2
+            capacity_score = (active_tasks / max_tasks) * 100 if max_tasks > 0 else 100
+            load_score = resource_score * 0.7 + capacity_score * 0.3
             
             node_loads[node] = {
                 "load_score": load_score,
+                "active_tasks": active_tasks,
+                "max_tasks": max_tasks,
                 "cpu": cpu,
                 "ram": ram
             }
@@ -143,7 +147,7 @@ def get_best_node():
     for node in candidates:
         load = node_loads[node]
         status = "✓" if node == min_load_node else " "
-        print(f"   {status} Nodo {node}: CPU: {load['cpu']}% | RAM: {load['ram']}% | Score: {load['load_score']:.1f}")
+        print(f"   {status} Nodo {node}: {load['active_tasks']}/{load['max_tasks']} tareas | CPU: {load['cpu']:.1f}% | RAM: {load['ram']:.1f}% | Score: {load['load_score']:.1f}")
 
     return min_load_node
 
@@ -166,20 +170,52 @@ def show_node_statuses():
     
     # Mostrar tareas pendientes por nodo
     total_pending = 0
-    print("\n📋 Tareas pendientes por nodo:")
-    for key in r.scan_iter("task_queue:*"):
-        node = key.split(":")[1]
-        pending_tasks = r.lrange(key, 0, -1)
-        if pending_tasks:
-            total_pending += len(pending_tasks)
-            print(f"   📌 Nodo {node}: {len(pending_tasks)} tareas")
-            for i, task in enumerate(pending_tasks, 1):
-                task_data = json.loads(task)
-                print(f"      {i}. Audio {task_data['index']}: {task_data['path']}")
+    total_active = 0
+    print("\n📋 Estado de tareas por nodo:")
     
-    if total_pending == 0:
-        print("   💤 No hay tareas pendientes en nodos")
-    print(f"\n📊 Total de tareas pendientes en nodos: {total_pending}")
+    for key in r.scan_iter("node_stats:*"):
+        node = key.split(":")[1]
+        stats = r.hgetall(key)
+        
+        if not check_node_status(node):
+            continue
+            
+        try:
+            active_tasks = int(stats.get("tasks", 0))
+            max_tasks = int(stats.get("max_tasks", 1))
+            total_active += active_tasks
+            
+            # Obtener tareas pendientes
+            pending_tasks = r.lrange(f"task_queue:{node}", 0, -1)
+            pending_count = len(pending_tasks)
+            total_pending += pending_count
+            
+            # Obtener tareas activas (current_task:thread_X)
+            active_task_keys = [k for k in stats.keys() if k.startswith("current_task:")]
+            
+            print(f"\n   📌 Nodo {node}: {active_tasks}/{max_tasks} tareas activas, {pending_count} pendientes")
+            
+            # Mostrar tareas activas
+            if active_task_keys:
+                print(f"      Tareas activas:")
+                for task_key in active_task_keys:
+                    task_data = json.loads(stats[task_key])
+                    print(f"         🔄 Audio {task_data['index']}: {task_data['path']}")
+            
+            # Mostrar tareas pendientes
+            if pending_tasks:
+                print(f"      Tareas pendientes:")
+                for i, task in enumerate(pending_tasks, 1):
+                    task_data = json.loads(task)
+                    print(f"         ⏳ Audio {task_data['index']}: {task_data['path']}")
+                    
+        except (ValueError, TypeError, json.JSONDecodeError) as e:
+            print(f"      ⚠️ Error al procesar estado: {e}")
+    
+    print(f"\n📊 Resumen global:")
+    print(f"   • Tareas sin asignar: {len(unassigned_tasks)}")
+    print(f"   • Tareas activas: {total_active}")
+    print(f"   • Tareas pendientes en nodos: {total_pending}")
     print("\n🖥️ Estado de los nodos:")
     
     # Primera pasada: identificar nodos desconectados
@@ -208,6 +244,7 @@ def show_node_statuses():
             ram = float(stats.get("ram", 100))
             disk = float(stats.get("disk", 100))
             tasks = int(stats.get("tasks", 0))
+            max_tasks = int(stats.get("max_tasks", 1))
             node_status = stats.get("status", "available")
             
             if is_node_overloaded(stats):
@@ -217,7 +254,7 @@ def show_node_statuses():
                 status = "🟢" 
                 status_text = "DISPONIBLE"
                 
-            print(f"{status} Nodo {node} [{status_text}] ➤ CPU: {cpu:.1f}% | RAM: {ram:.1f}% | Disco: {disk:.1f}% | Tareas activas: {tasks} | Estado: {node_status}")
+            print(f"{status} Nodo {node} [{status_text}] ➤ CPU: {cpu:.1f}% | RAM: {ram:.1f}% | Disco: {disk:.1f}% | Tareas: {tasks}/{max_tasks} | Estado: {node_status}")
         except (ValueError, TypeError):
             print(f"⚠️ Nodo {node} tiene datos de estado inválidos")
 
