@@ -28,7 +28,8 @@ def report_status():
         r.hset(f"node_stats:{node_id}", mapping={
             "cpu": cpu,
             "ram": ram,
-            "disk": disk
+            "disk": disk,
+            "last_heartbeat": time.time()
         })
         time.sleep(1)
 
