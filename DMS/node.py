@@ -2,6 +2,8 @@ import time
 import json
 import psutil
 import whisper
+import threading
+from queue import Queue
 from utils import redis_client
 
 RESOURCE_THRESHOLD = 80.0
@@ -11,6 +13,10 @@ r = redis_client.get_redis()
 node_id = r.incr("global:node_counter")
 node_id = f"node{node_id}"
 print(f"🔧 Nodo registrado como ID: {node_id}")
+
+# Cola para comunicación entre hilos
+task_queue = Queue()
+result_queue = Queue()
 
 # Inicializar estado del nodo
 r.hset(f"node_stats:{node_id}", mapping={
@@ -48,8 +54,9 @@ def update_node_status():
 
 def process_task(data):
     try:
-        # Marcar nodo como ocupado
-        r.hset(f"node_stats:{node_id}", "tasks", 1)
+        # Incrementar contador de tareas atómicamente
+        r.hincrby(f"node_stats:{node_id}", "tasks", 1)
+        r.hset(f"node_stats:{node_id}", "current_task", data)
         
         # Cargar modelo y procesar tarea
         model = whisper.load_model("base")
@@ -77,32 +84,82 @@ def process_task(data):
         
         print(f"✅ Nodo {node_id} transcribió '{path}' en {duration:.2f} s")
         
-        # Enviar resultado
-        payload = json.dumps({"index": index, "text": result["text"]})
-        r.rpush(f"results:{node_id}", payload)
+        # Enviar resultado a la cola de resultados
+        result_data = {
+            "index": index,
+            "text": result["text"],
+            "duration": duration
+        }
+        result_queue.put(result_data)
         
     finally:
-        # Marcar nodo como disponible
-        r.hset(f"node_stats:{node_id}", "tasks", 0)
+        # Decrementar contador de tareas atómicamente y limpiar tarea actual
+        r.hincrby(f"node_stats:{node_id}", "tasks", -1)
+        r.hdel(f"node_stats:{node_id}", "current_task")
 
-print(f"🎤 Nodo {node_id} escuchando")
+def task_processor():
+    """Hilo dedicado al procesamiento de tareas"""
+    print(f"🎯 Iniciando procesador de tareas en nodo {node_id}")
+    while True:
+        try:
+            data = task_queue.get()
+            if data == "STOP":
+                break
+            process_task(data)
+        except Exception as e:
+            print(f"❌ Error en procesador de tareas: {e}")
+        finally:
+            task_queue.task_done()
 
-while True:
-    # Actualizar y verificar estado
-    status = update_node_status()
-    
-    # Intentar obtener una tarea
-    try:
-        task = r.blpop(f"task_queue:{node_id}", timeout=1)
-        if task:
-            _, data = task
-            if not is_overloaded():
-                process_task(data)
-            else:
-                print(f"⚠️ Recursos altos, devolviendo tarea a la cola")
-                r.rpush(f"task_queue:{node_id}", data)
-    except Exception as e:
-        print(f"❌ Error procesando tarea: {e}")
+def control_manager():
+    """Hilo dedicado a la gestión de control y comunicación con el main"""
+    print(f"🔄 Iniciando gestor de control en nodo {node_id}")
+    while True:
+        try:
+            # Actualizar estado del nodo
+            status = update_node_status()
+            
+            # Verificar resultados pendientes y enviarlos al main
+            while not result_queue.empty():
+                result_data = result_queue.get()
+                payload = json.dumps(result_data)
+                r.rpush(f"results:{node_id}", payload)
+                result_queue.task_done()
+            
+            # Verificar nuevas tareas
+            task = r.blpop(f"task_queue:{node_id}", timeout=1)
+            if task:
+                _, data = task
+                if not is_overloaded():
+                    task_queue.put(data)
+                else:
+                    print(f"⚠️ Recursos altos, devolviendo tarea a la cola")
+                    r.rpush(f"task_queue:{node_id}", data)
+                    
+        except Exception as e:
+            print(f"❌ Error en gestor de control: {e}")
+        
         time.sleep(1)
+
+if __name__ == "__main__":
+    print(f"🎤 Nodo {node_id} iniciando...")
     
-    time.sleep(1)  # Pequeña pausa entre tareas
+    # Crear y arrancar hilos
+    processor_thread = threading.Thread(target=task_processor, daemon=True)
+    control_thread = threading.Thread(target=control_manager, daemon=True)
+    
+    processor_thread.start()
+    control_thread.start()
+    
+    try:
+        # Mantener el programa principal vivo
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        print("\n⚠️ Señal de terminación recibida")
+        # Enviar señal de parada al procesador
+        task_queue.put("STOP")
+        # Esperar a que terminen las tareas pendientes
+        task_queue.join()
+        result_queue.join()
+        print("✅ Nodo terminado correctamente")
