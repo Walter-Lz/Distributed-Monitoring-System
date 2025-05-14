@@ -6,7 +6,7 @@ from utils import redis_client
 r = redis_client.get_redis()
 r.flushall()
 AUDIO_DIR = "audios"
-NODE_TIMEOUT = 5  # Tiempo máximo sin heartbeat antes de considerar un nodo como inactivo
+NODE_TIMEOUT = 3  # Tiempo máximo sin heartbeat antes de considerar un nodo como inactivo
 
 # Mantener registro de nodos activos y sus tareas
 active_nodes = set()
@@ -47,19 +47,110 @@ def handle_node_disconnection(node_id):
 
 def assign_task(task_data):
     node = None
-    while not node:
+    retry_count = 0
+    max_retries = 3  # Número máximo de intentos para asignar una tarea
+    
+    while not node and retry_count < max_retries:
         node = get_best_node()
         if not node:
-            print("⏳ Esperando nodos disponibles para reasignar tarea...")
-            time.sleep(1)
+            print("⏳ Esperando nodos disponibles para asignar tarea...")
+            time.sleep(2)
+            retry_count += 1
     
-    print(f"📤 Reasignando tarea a {node}")
+    if not node:
+        print("❌ No se pudo asignar la tarea después de varios intentos")
+        return False
+    
+    print(f"📤 Asignando tarea a {node}")
     r.rpush(f"task_queue:{node}", task_data)
+    return True
+
+def is_node_overloaded(stats):
+    try:
+        cpu = float(stats.get("cpu", 100))
+        ram = float(stats.get("ram", 100))
+        return cpu >= 80 or ram >= 90
+    except (ValueError, TypeError):
+        return True
+
+def get_best_node():
+    candidates = []
+    node_loads = {}
+    
+    # Primero recolectamos información de todos los nodos disponibles
+    for key in r.scan_iter("node_stats:*"):
+        node = key.split(":")[1]
+        if not check_node_status(node):
+            continue
+        
+        stats = r.hgetall(key)
+        if is_node_overloaded(stats):
+            continue
+            
+        try:
+            # Obtener métricas del nodo
+            cpu = float(stats.get("cpu", 100))
+            ram = float(stats.get("ram", 100))
+            active_tasks = int(stats.get("tasks", 0))
+            
+            # Obtener tareas pendientes
+            pending_tasks = len(r.lrange(f"task_queue:{node}", 0, -1))
+            total_tasks = active_tasks + pending_tasks
+            
+            # Calcular puntuación de carga
+            resource_score = (cpu + ram) / 2 
+            task_score = total_tasks * 15    
+            load_score = resource_score + task_score
+            
+            node_loads[node] = {
+                "load_score": load_score,
+                "total_tasks": total_tasks,
+                "cpu": cpu,
+                "ram": ram
+            }
+            candidates.append(node)
+            
+        except (ValueError, TypeError):
+            continue
+
+    if not candidates:
+        print("No hay nodos disponibles o todos están sobrecargados.")
+        return None
+
+    # Encontrar el nodo con menor carga
+    min_load_node = min(candidates, key=lambda x: node_loads[x]["load_score"])
+    
+    # Imprimir información de distribución de carga
+    print("\n📊 Distribución de carga actual:")
+    for node in candidates:
+        load = node_loads[node]
+        status = "✓" if node == min_load_node else " "
+        print(f"   {status} Nodo {node}: {load['total_tasks']} tareas | CPU: {load['cpu']}% | RAM: {load['ram']}% | Score: {load['load_score']:.1f}")
+
+    return min_load_node
 
 def show_node_statuses():
     print("\nEstado actual de los nodos:")
     node_keys = [key for key in r.scan_iter("node_stats:*")]
     current_nodes = set()
+    
+    # Mostrar tareas pendientes totales
+    total_pending = 0
+    print("\n📋 Tareas pendientes por nodo:")
+    for key in r.scan_iter("task_queue:*"):
+        node = key.split(":")[1]
+        pending_tasks = r.lrange(key, 0, -1)
+        if pending_tasks:
+            total_pending += len(pending_tasks)
+            print(f"   📌 Nodo {node}: {len(pending_tasks)} tareas")
+            for i, task in enumerate(pending_tasks, 1):
+                task_data = json.loads(task)
+                print(f"      {i}. Audio {task_data['index']}: {task_data['path']}")
+    
+    if total_pending == 0:
+        print("   💤 No hay tareas pendientes")
+    print(f"\n📊 Total de tareas pendientes: {total_pending}")
+    print("\n🖥️ Estado de los nodos:")
     
     for key in node_keys:
         node = key.split(":")[1]
@@ -71,35 +162,25 @@ def show_node_statuses():
             if node not in active_nodes:
                 active_nodes.add(node)
                 print(f"✅ Nodo {node} se ha conectado!")
-            status = "🟢"
+            
+            # Determinar el estado del nodo
+            if is_node_overloaded(stats):
+                status = "🔶"  # Naranja para sobrecargado
+            else:
+                status = "🟢"  # Verde para disponible
         else:
-            status = "🔴"
+            status = "🔴"  # Rojo para desconectado
             handle_node_disconnection(node)
             continue
             
-        print(f"{status} Nodo {node} ➤ CPU: {stats.get('cpu', '?')}% | RAM: {stats.get('ram', '?')}% | Disco: {stats.get('disk', '?')}% | Tareas: {stats.get('tasks', '0')}")
-
-def get_best_node():
-    candidates = []
-    for key in r.scan_iter("node_stats:*"):
-        node = key.split(":")[1]
-        if not check_node_status(node):
-            continue
-        stats = r.hgetall(key)
-        try:
-            cpu = float(stats.get("cpu", 100))
-            ram = float(stats.get("ram", 100))
-            tasks = int(stats.get("tasks", 0))
-            load_score = (cpu + ram) / 2 + (tasks * 10) 
-            candidates.append((node, load_score))
-        except (ValueError, TypeError):
-            continue
-
-    if not candidates:
-        print("No hay nodos disponibles.")
-        return None
-
-    return min(candidates, key=lambda x: x[1])[0]
+        cpu = stats.get("cpu", "?")
+        ram = stats.get("ram", "?")
+        disk = stats.get("disk", "?")
+        tasks = stats.get("tasks", "0")
+        node_status = stats.get("status", "available")
+        
+        status_text = "SOBRECARGADO" if is_node_overloaded(stats) else "DISPONIBLE"
+        print(f"{status} Nodo {node} [{status_text}] ➤ CPU: {cpu}% | RAM: {ram}% | Disco: {disk}% | Tareas activas: {tasks} | Estado: {node_status}")
 
 # Asignación inicial de tareas
 for idx, filename in enumerate(audio_files):
@@ -108,26 +189,34 @@ for idx, filename in enumerate(audio_files):
     assign_task(task_data)
 
 results = {}
+tasks_completed = False
 print("\n📝 TRANSCRIPCIONES EN TIEMPO REAL:\n")
-while len(results) < len(audio_files):
+
+while True:
     show_node_statuses()
     
-    for key in r.scan_iter("node_stats:*"):
-        node = key.split(":")[1]
-        if not check_node_status(node):
-            continue
-            
-        res = r.lpop(f"results:{node}")
-        if res:
-            data = json.loads(res)
-            index, text = data["index"], data["text"]
-            if index not in results:
-                results[index] = text
-                print(f"📄 Audio {index}:")
-                print(text)
-                print("\n---\n")
-            r.hincrby(f"node_stats:{node}", "tasks", -1)
+    # Procesar resultados si aún hay tareas pendientes
+    if not tasks_completed:
+        for key in r.scan_iter("node_stats:*"):
+            node = key.split(":")[1]
+            if not check_node_status(node):
+                continue
+                
+            res = r.lpop(f"results:{node}")
+            if res:
+                data = json.loads(res)
+                index, text = data["index"], data["text"]
+                if index not in results:
+                    results[index] = text
+                    print(f"📄 Audio {index}:")
+                    print(text)
+                    print("\n---\n")
+                r.hincrby(f"node_stats:{node}", "tasks", -1)
+        
+        # Verificar si se completaron todas las tareas
+        if len(results) == len(audio_files) and not tasks_completed:
+            tasks_completed = True
+            print("\n✅ Todas las transcripciones han sido recibidas.")
+            print("👀 Sistema en espera de nuevas tareas...\n")
     
     time.sleep(1)
-
-print("\nTodas las transcripciones han sido recibidas.")
