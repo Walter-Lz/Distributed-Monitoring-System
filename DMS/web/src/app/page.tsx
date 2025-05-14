@@ -1,16 +1,25 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
+import NodeModal from "./component/NodeModal";
+import {
+  Chart as ChartJS,
+  RadialLinearScale,
+  PointElement,
+  LineElement,
+  Filler,
+  Tooltip,
+  Legend,
+} from "chart.js";
 import "./globals.css";
+ChartJS.register(RadialLinearScale, PointElement, LineElement, Filler, Tooltip, Legend);
 
 type Tasks = {
   [nodeId: string]: string[];
 };
-
 type Results = {
   [nodeId: string]: string[];
 };
-
 type Nodes = {
   [nodeId: string]: {
     cpu?: string;
@@ -19,11 +28,11 @@ type Nodes = {
     tasks?: string;
   };
 };
-
 export default function Home() {
   const [nodes, setNodes] = useState<Nodes>({});
   const [tasks, setTasks] = useState<Tasks>({});
   const [results, setResults] = useState<Results>({});
+  const [selectedNode, setSelectedNode] = useState<string | null>(null);
 
   useEffect(() => {
     const ws = new WebSocket("ws://127.0.0.1:8000/ws");
@@ -48,58 +57,90 @@ export default function Home() {
       ws.close();
     };
   }, []);
-
   return (
-    <div>
-      <h1>Distributed Monitoring System</h1>
+    <div className="p-8 bg-gray-100 min-h-screen text-gray-800">
+      <h1 className="text-3xl font-bold mb-6 text-center text-blue-600">Distributed Monitoring System</h1>
 
-      <section>
-        <h2>Node Status</h2>
-        <table>
-          <thead>
-            <tr>
-              <th>Node ID</th>
-              <th>CPU Usage</th>
-              <th>RAM Usage</th>
-              <th>Disk Usage</th>
-              <th>Active Tasks</th>
-            </tr>
-          </thead>
-          <tbody>
-            {Object.entries(nodes).map(([nodeId, stats]) => (
-              <tr key={nodeId}>
-                <td>{nodeId}</td>
-                <td>{stats.cpu || "N/A"}%</td>
-                <td>{stats.ram || "N/A"}%</td>
-                <td>{stats.disk || "N/A"}%</td>
-                <td>{stats.tasks || "0"}</td>
+      <section className="mb-10">
+        <h2 className="text-xl font-semibold mb-4 text-gray-700">Node Status</h2>
+        <div className="overflow-x-auto">
+          <table className="min-w-full bg-white shadow rounded-lg">
+            <thead>
+              <tr className="bg-blue-200 text-left text-sm uppercase text-blue-800">
+                <th className="p-3">Node ID</th>
+                <th className="p-3">CPU Usage</th>
+                <th className="p-3">RAM Usage</th>
+                <th className="p-3">Disk Usage</th>
+                <th className="p-3">Active Tasks</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+               </thead>
+            <tbody>
+              {Object.entries(nodes).map(([nodeId, stats]) => (
+                <tr
+                  key={nodeId}
+                  className="hover:bg-gray-200 cursor-pointer transition-colors"
+                  onClick={() => setSelectedNode(nodeId)}
+                >
+                  <td className="p-3 font-semibold text-gray-700">{nodeId}</td>
+                  <td className={`p-3 ${getColor(stats.cpu)} ${getBgColor(stats.cpu)} font-medium`}>
+                    {stats.cpu || "N/A"}%
+                  </td>
+                  <td className={`p-3 ${getColor(stats.ram)} ${getBgColor(stats.ram)} font-medium`}>
+                    {stats.ram || "N/A"}%
+                  </td>
+                  <td className={`p-3 ${getColor(stats.disk)} ${getBgColor(stats.disk)} font-medium`}>
+                    {stats.disk || "N/A"}%
+                  </td>
+                  <td className="p-3 text-gray-700">{stats.tasks || "0"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </section>
 
-      <section>
-        <h2>Tasks in Progress</h2>
-        <ul>
+      <section className="mt-6">
+        <h2 className="text-xl font-semibold mb-2">Tasks in Progress</h2>
+        <ul className="list-disc list-inside text-sm space-y-1">
           {Object.entries(tasks).map(([nodeId, taskList]) => (
             <li key={nodeId}>
-              <strong>Node {nodeId}:</strong> {taskList.join(", ")}
+              <strong className="text-black-400">Node {nodeId}:</strong> {taskList.join(", ")}
             </li>
           ))}
         </ul>
       </section>
 
-      <section>
-        <h2>Transcription Results</h2>
-        <ul>
+      <section className="mt-6">
+        <h2 className="text-xl font-semibold mb-2">Transcription Results</h2>
+        <ul className="list-disc list-inside text-sm space-y-1">
           {Object.entries(results).map(([nodeId, resultList]) => (
             <li key={nodeId}>
-              <strong>Node {nodeId}:</strong> {resultList.join(", ")}
+              <strong className="text-black-400">Node {nodeId}:</strong> {resultList.join(", ")}
             </li>
           ))}
         </ul>
       </section>
+
+      {selectedNode && nodes[selectedNode] && (
+        <NodeModal
+          isOpen={true}
+          onClose={() => setSelectedNode(null)}
+          nodeId={selectedNode}
+          stats={nodes[selectedNode]}
+        />
+      )}
     </div>
   );
 }
+function getColor(value?: string): string {
+  const num = parseFloat(value || "0");
+  if (num < 40) return "text-green-600";
+  if (num < 70) return "text-yellow-600";
+  return "text-red-600";
+}
+ const getBgColor = (value?: string): string => {
+    const num = parseFloat(value || "0");
+    if (num < 40) return "bg-green-100";
+    if (num < 70) return "bg-yellow-100";
+    return "bg-red-100";
+  };
