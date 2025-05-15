@@ -3,6 +3,10 @@ import json
 import time
 from utils import redis_client
 
+with open("finalizadas.txt", "w", encoding="utf-8") as f:
+    pass  # Esto borra el contenido del archivo
+
+
 r = redis_client.get_redis()
 r.flushall()
 AUDIO_DIR = "audios"

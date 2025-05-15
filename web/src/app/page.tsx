@@ -124,14 +124,14 @@ export default function Home() {
       </section>
 
       <section className="mt-6">
-        <h2 className="text-xl font-semibold mb-2">Transcription Results</h2>
-        <ul className="list-disc list-inside text-sm space-y-1">
-          {Object.entries(results).map(([nodeId, resultList]) => (
-            <li key={nodeId}>
-              <strong className="text-black-400">Node {nodeId}:</strong> {resultList.join(", ")}
-            </li>
-          ))}
-        </ul>
+        <h2 className="text-xl font-semibold mb-2">Completed tasks</h2>
+          <ul className="list-disc list-inside text-sm space-y-1">
+            {Object.entries(results).map(([nodeId, resultList]) => (
+              resultList.map((line, idx) => (
+                <li key={nodeId + idx}>{line}</li>
+              ))
+            ))}
+          </ul>
       </section>
 
       {selectedNode && nodes[selectedNode] && (

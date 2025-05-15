@@ -109,7 +109,8 @@ def process_task(data, thread_id):
         })
         
         print(f"✅ Hilo {thread_id}: Nodo {node_id} transcribió '{path}' en {duration:.2f} s")
-        
+        with open("finalizadas.txt", "a", encoding="utf-8") as f:
+            f.write(f"Nodo {node_id} terminó la tarea: {path} en {duration:.2f} s\n")  
         # Enviar resultado a la cola de resultados
         result_data = {
             "index": index,
@@ -117,6 +118,9 @@ def process_task(data, thread_id):
             "duration": duration,
             "thread_id": thread_id
         }
+
+
+
         result_queue.put(result_data)
         
     finally:
