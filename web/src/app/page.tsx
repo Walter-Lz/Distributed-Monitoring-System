@@ -33,6 +33,24 @@ export default function Home() {
   const [tasks, setTasks] = useState<Tasks>({});
   const [results, setResults] = useState<Results>({});
   const [selectedNode, setSelectedNode] = useState<string | null>(null);
+  const [orderBy, setOrderBy] = useState<"node" | "timeAsc" | "timeDesc">("node");
+  const allResults: string[] = Object.values(results).flat();
+
+  const sortedResults = [...allResults].sort((a, b) => {
+    if (orderBy === "timeAsc") {
+      const timeA = parseFloat(a.match(/en ([\d.]+) s/)?.[1] || "0");
+      const timeB = parseFloat(b.match(/en ([\d.]+) s/)?.[1] || "0");
+      return timeA - timeB;
+    } else if (orderBy === "timeDesc") {
+      const timeA = parseFloat(a.match(/en ([\d.]+) s/)?.[1] || "0");
+      const timeB = parseFloat(b.match(/en ([\d.]+) s/)?.[1] || "0");
+      return timeB - timeA;
+    } else {
+      const nodeA = a.match(/Nodo (node\d+)/)?.[1] || "";
+      const nodeB = b.match(/Nodo (node\d+)/)?.[1] || "";
+      return nodeA.localeCompare(nodeB, undefined, { numeric: true });
+    }
+  });
 
   useEffect(() => {
     const ws = new WebSocket("ws://127.0.0.1:8000/ws");
@@ -125,13 +143,20 @@ export default function Home() {
 
       <section className="mt-6">
         <h2 className="text-xl font-semibold mb-2">Completed tasks</h2>
-          <ul className="list-disc list-inside text-sm space-y-1">
-            {Object.entries(results).map(([nodeId, resultList]) => (
-              resultList.map((line, idx) => (
-                <li key={nodeId + idx}>{line}</li>
-              ))
-            ))}
-          </ul>
+        <select
+          className="mb-2 px-3 py-1 rounded border border-gray-300"
+          value={orderBy}
+          onChange={e => setOrderBy(e.target.value as "node" | "timeAsc" | "timeDesc")}
+        >
+          <option value="node">Ordenar por nodo</option>
+          <option value="timeAsc">Tiempo (menor a mayor)</option>
+          <option value="timeDesc">Tiempo (mayor a menor)</option>
+        </select>
+        <ul className="list-disc list-inside text-sm space-y-1">
+          {sortedResults.map((line, idx) => (
+            <li key={idx}>{line}</li>
+          ))}
+        </ul>
       </section>
 
       {selectedNode && nodes[selectedNode] && (
