@@ -104,7 +104,20 @@ export default function Home() {
         <ul className="list-disc list-inside text-sm space-y-1">
           {Object.entries(tasks).map(([nodeId, taskList]) => (
             <li key={nodeId}>
-              <strong className="text-black-400">Node {nodeId}:</strong> {taskList.join(", ")}
+              <strong className="text-black-400">{nodeId}:</strong>{" "}
+              {taskList
+                .map((task) => {
+                  try {
+                    const parsed = JSON.parse(task);
+                    // Extraer solo el nombre del archivo
+                    const path = parsed.path || "";
+                    const fileName = path.split(/[\\/]/).pop() || path;
+                    return fileName;
+                  } catch {
+                    return task;
+                  }
+                })
+                .join(", ")}
             </li>
           ))}
         </ul>

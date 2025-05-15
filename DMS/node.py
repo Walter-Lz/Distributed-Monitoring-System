@@ -7,7 +7,7 @@ from queue import Queue
 from utils import redis_client
 
 # Umbrales de recursos
-RESOURCE_THRESHOLD = 80.0  # Límite superior para considerar sobrecarga
+RESOURCE_THRESHOLD = 85.0  # Límite superior para considerar sobrecarga
 RESOURCE_OPTIMAL = 60.0    # Límite para permitir múltiples tareas
 
 r = redis_client.get_redis()
