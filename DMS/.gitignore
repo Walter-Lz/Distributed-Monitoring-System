@@ -2,3 +2,5 @@
 venv/
 
 start_project.bat
+node_modules/
+.next/
