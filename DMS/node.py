@@ -5,6 +5,10 @@ import whisper
 import threading
 from queue import Queue
 from utils import redis_client
+from supabase import create_client, Client
+SUPABASE_URL = "https://kybwqugpfsfzkyuhngwv.supabase.co"
+SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imt5YndxdWdwZnNmemt5dWhuZ3d2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDc2MzEyNjAsImV4cCI6MjA2MzIwNzI2MH0.oDJ04R3CZmcuPPmFYIb_8t1Rz5MkK0Ji8Wl1Ur40yEw"
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # Umbrales de recursos
 RESOURCE_THRESHOLD = 85.0  # Límite superior para considerar sobrecarga
@@ -118,7 +122,11 @@ def process_task(data, thread_id):
             "duration": duration,
             "thread_id": thread_id
         }
-
+        supabase.table("Log").insert({
+            "nodo": node_id,
+            "path": path,
+            "duration": duration
+        }).execute()
 
 
         result_queue.put(result_data)
