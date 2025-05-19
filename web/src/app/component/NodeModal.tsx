@@ -100,7 +100,7 @@ export default function NodeModal({ isOpen, onClose, nodeId, stats }: Props) {
           <Dialog.Title className="text-gray-800 text-lg font-bold mb-4">
             {nodeId} Resource Usage
           </Dialog.Title>
-          <div className="h-64 flex items-center justify-center">
+          <div className="h-96 flex items-center justify-center">
             <Radar data={data} options={options} />
           </div>
           <button
