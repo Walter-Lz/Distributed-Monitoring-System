@@ -3,3 +3,5 @@ Nodo node3 terminó la tarea: audios\audio4.mp3 en 12.90 s
 Nodo node3 terminó la tarea: audios\audio5.mp3 en 12.83 s
 Nodo node3 terminó la tarea: audios\audio2.mp3 en 21.37 s
 Nodo node3 terminó la tarea: audios\audio8.mp3 en 30.38 s
+Nodo node3 terminó la tarea: audios\audio7.mp3 en 31.59 s
+Nodo node3 terminó la tarea: audios\audio3.mp3 en 31.60 s
