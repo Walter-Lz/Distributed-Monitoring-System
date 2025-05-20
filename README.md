@@ -29,7 +29,7 @@ Instalación rápida
   python -m venv venv
   venv\Scripts\activate
   pip install -r requirements.txt
-  pip install openai-whisper ffmpeg-python redis psutil fastapi uvicorn
+  pip install git+https://github.com/openai/whisper.git
 ```
 4.Dependencias del frontend
   ```bash
