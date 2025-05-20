@@ -108,3 +108,4 @@ Créditos
 -Next.js
 -OpenAI Whisper
 -Redis
+-FFMPEG
