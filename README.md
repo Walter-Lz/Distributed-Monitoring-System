@@ -16,7 +16,7 @@ Instalación rápida
 
 1.Clona el repositorio
    ```bash
-   git clone <(https://github.com/Walter-Lz/Distributed-Monitoring-System)>
+   git clone https://github.com/Walter-Lz/Distributed-Monitoring-System
    cd Distributed-Monitoring-System
    ```
 2.Levantar redis
