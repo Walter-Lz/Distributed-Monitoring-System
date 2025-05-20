@@ -85,6 +85,8 @@ Esta API está construida con FastAPI y expone endpoints HTTP y un WebSocket par
       "ram": "40.2",
       "disk": "60.1",
       "tasks": "1"
+      "current_tasks": ["task1"],
+      "completed_tasks": ["task2"]
     },
     ...
   },
