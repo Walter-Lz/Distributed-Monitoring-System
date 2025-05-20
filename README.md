@@ -109,3 +109,4 @@ Créditos
 -OpenAI Whisper
 -Redis
 -FFMPEG
+-Docker
