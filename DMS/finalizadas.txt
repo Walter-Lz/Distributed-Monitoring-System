@@ -1,9 +1,0 @@
-Nodo node1 terminó la tarea: audios\audio4.mp3 en 19.02 s
-Nodo node2 terminó la tarea: audios\audio3.mp3 en 18.88 s
-Nodo node1 terminó la tarea: audios\audio8.mp3 en 41.83 s
-Nodo node2 terminó la tarea: audios\audio6.mp3 en 48.10 s
-Nodo node1 terminó la tarea: audios\audio2.mp3 en 54.85 s
-Nodo node2 terminó la tarea: audios\audio7.mp3 en 52.26 s
-Nodo node1 terminó la tarea: audios\audio9.mp3 en 35.94 s
-Nodo node2 terminó la tarea: audios\audio5.mp3 en 35.17 s
-Nodo node1 terminó la tarea: audios\audio1.mp3 en 29.43 s

@@ -2,6 +2,12 @@ import os
 import json
 import time
 from utils import redis_client
+from supabase import create_client, Client
+SUPABASE_URL = "https://kybwqugpfsfzkyuhngwv.supabase.co"
+SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imt5YndxdWdwZnNmemt5dWhuZ3d2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDc2MzEyNjAsImV4cCI6MjA2MzIwNzI2MH0.oDJ04R3CZmcuPPmFYIb_8t1Rz5MkK0Ji8Wl1Ur40yEw"
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+supabase.table("Log").delete().neq("id", 0).execute()
 
 with open("finalizadas.txt", "w", encoding="utf-8") as f:
     pass  # Esto borra el contenido del archivo
