@@ -6,6 +6,18 @@ import threading
 from queue import Queue
 from utils import redis_client
 from supabase import create_client, Client
+
+import os
+import sys
+
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+PROYECTO_SNAKE_PATH = os.path.join(BASE_DIR, "ProyectoSnake")
+if PROYECTO_SNAKE_PATH not in sys.path:
+    sys.path.append(PROYECTO_SNAKE_PATH)
+
+from Logic import create_game_state
+
+
 SUPABASE_URL = "https://kybwqugpfsfzkyuhngwv.supabase.co"
 SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imt5YndxdWdwZnNmemt5dWhuZ3d2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDc2MzEyNjAsImV4cCI6MjA2MzIwNzI2MH0.oDJ04R3CZmcuPPmFYIb_8t1Rz5MkK0Ji8Wl1Ur40yEw"
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
@@ -88,48 +100,47 @@ def process_task(data, thread_id):
         r.hincrby(f"node_stats:{node_id}", "tasks", 1)
         r.hset(f"node_stats:{node_id}", f"current_task:{thread_id}", data)
         
-        # Cargar modelo y procesar tarea
-        model = whisper.load_model("base")
+        # Procesar tarea
+        print(f"DEBUG: Recibido en process_task: {data}")
         task = json.loads(data)
-        index = task["index"]
-        path = task["path"]
-        
-        print(f"🎯 Hilo {thread_id}: Procesando audio {index}: {path}")
-        
-        # Transcribir audio
-        start = time.time()
-        result = model.transcribe(path)
-        end = time.time()
-        
-        # Calcular estadísticas
-        duration = end - start
-        avg_time = float(r.hget(f"node_stats:{node_id}", "avg_time") or 0)
-        avg_time = (avg_time + duration) / 2
-        
-        # Actualizar estadísticas
-        r.hset(f"node_stats:{node_id}", mapping={
-            "last_time": duration,
-            "avg_time": avg_time,
-        })
-        
-        print(f"✅ Hilo {thread_id}: Nodo {node_id} transcribió '{path}' en {duration:.2f} s")
-        with open("finalizadas.txt", "a", encoding="utf-8") as f:
-            f.write(f"Nodo {node_id} terminó la tarea: {path} en {duration:.2f} s\n")  
-        # Enviar resultado a la cola de resultados
-        result_data = {
-            "index": index,
-            "text": result["text"],
-            "duration": duration,
-            "thread_id": thread_id
-        }
-        supabase.table("Log").insert({
-            "nodo": node_id,
-            "path": path,
-            "duration": duration
-        }).execute()
+        if task.get("type") == "snake_move":
+            print(f"🐍 Nodo {node_id} procesando tarea Snake: {task}")
 
+            # 1. Cargar el estado actual del juego desde Redis
+            state_json = r.get("snake:state")
+            if state_json:
+                if isinstance(state_json, bytes):
+                    state_json = state_json.decode("utf-8")
+                game_state = json.loads(state_json)
+            else:
+                # Si no hay estado, crea uno nuevo
+                initial_snake = [[5, 5], [5, 4], [5, 3]]
+                initial_objectives = [[10, 10]]
+                initial_obstacles = []
+                game_state = {
+                    "snake": initial_snake,
+                    "food": initial_objectives[0],
+                    "score": 0,
+                    "game_over": False,
+                    "obstacles": initial_obstacles
+                }
 
-        result_queue.put(result_data)
+            # 2. Aplicar el movimiento usando la lógica de ProyectoSnake
+            direction = task.get("direction")
+            player_id = task.get("player_id")
+
+            snake = game_state.get("snake", [[5, 5], [5, 4], [5, 3]])
+            food = [game_state.get("food", [10, 10])]
+            obstacles = game_state.get("obstacles", [])
+            score = game_state.get("score", 0)
+            game_over = game_state.get("game_over", False)
+
+            new_state = create_game_state(snake, food, obstacles, score, game_over)
+            r.set("snake:state", json.dumps(new_state))
+            return  # Termina aquí para tareas Snake
+
+        # Si llega aquí, la tarea no es reconocida
+        print(f"⚠️ Tipo de tarea no soportado: {task.get('type')}")
         
     finally:
         # Decrementar contador de tareas atómicamente y limpiar tarea actual
@@ -138,7 +149,6 @@ def process_task(data, thread_id):
         # Eliminar el hilo del registro
         if thread_id in processing_threads:
             del processing_threads[thread_id]
-
 def task_processor():
     """Hilo dedicado al procesamiento de tareas"""
     global thread_counter
@@ -190,7 +200,7 @@ def control_manager():
             # Verificar si podemos aceptar más tareas
             if can_accept_more_tasks() or len(processing_threads) == 0:
                 # Verificar nuevas tareas
-                task = r.blpop(f"task_queue:{node_id}", timeout=1)
+                task = r.blpop("global:unassigned_tasks", timeout=1)
                 if task:
                     _, data = task
                     if not is_overloaded() or len(processing_threads) == 0:
@@ -207,6 +217,15 @@ def control_manager():
 if __name__ == "__main__":
     print(f"🎤 Nodo {node_id} iniciando...")
     
+    if not r.exists("snake:state"):
+        print("🟢 Inicializando estado inicial de Snake en Redis...")
+        initial_snake = [[5, 5], [5, 4], [5, 3]]
+        initial_objectives = [[10, 10]]
+        initial_obstacles = []
+        initial_state = create_game_state(initial_snake, initial_objectives, initial_obstacles)
+        r.set("snake:state", json.dumps(initial_state))
+
+
     # Crear y arrancar hilos principales
     processor_thread = threading.Thread(target=task_processor, daemon=True)
     control_thread = threading.Thread(target=control_manager, daemon=True)
@@ -215,17 +234,13 @@ if __name__ == "__main__":
     control_thread.start()
     
     try:
-        # Mantener el programa principal vivo
         while True:
             time.sleep(1)
     except KeyboardInterrupt:
         print("\n⚠️ Señal de terminación recibida")
-        # Enviar señal de parada al procesador
         task_queue.put("STOP")
-        # Esperar a que terminen las tareas pendientes
         task_queue.join()
         result_queue.join()
-        # Esperar a que terminen todos los hilos de procesamiento
         for thread in processing_threads.values():
             thread.join(timeout=5)
         print("✅ Nodo terminado correctamente")

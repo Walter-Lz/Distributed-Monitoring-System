@@ -1,8 +1,8 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { supabase } from "./supabaseClient";
 import NodeModal from "./component/NodeModal";
+import SnakeViewer from "./SnakeViewer";
 import {
   Chart as ChartJS,
   RadialLinearScale,
@@ -36,6 +36,7 @@ type CompletedTask = {
   path: string;
   duration: number;
 };
+
 export default function Home() {
   const [nodes, setNodes] = useState<Nodes>({});
   const [tasks, setTasks] = useState<Tasks>({});
@@ -44,6 +45,32 @@ export default function Home() {
   const [orderBy, setOrderBy] = useState<"node" | "timeAsc" | "timeDesc">("node");
   const allResults: string[] = Object.values(results).flat();
   const [completedTasks, setCompletedTasks] = useState<CompletedTask[]>([]);
+
+  // --- Snake: enviar movimiento al backend ---
+  async function sendMove(direction: string) {
+    await fetch("http://localhost:8000/snake/move", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        type: "snake_move",
+        player_id: "player1",
+        direction,
+        timestamp: Date.now()
+      }),
+    });
+  }
+
+  // Escuchar teclas para Snake
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "ArrowUp") sendMove("up");
+      if (e.key === "ArrowDown") sendMove("down");
+      if (e.key === "ArrowLeft") sendMove("left");
+      if (e.key === "ArrowRight") sendMove("right");
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
 
   const sortedResults = [...completedTasks].sort((a, b) => {
     if (orderBy === "timeAsc") {
@@ -55,48 +82,38 @@ export default function Home() {
     }
   });
 
-useEffect(() => {
-  // WebSocket para nodos, tareas y resultados en tiempo real
-  const ws = new WebSocket("ws://127.0.0.1:8000/ws");
+  useEffect(() => {
+    // WebSocket para nodos, tareas y resultados en tiempo real
+    const ws = new WebSocket("ws://127.0.0.1:8000/ws");
 
-  ws.onmessage = (event) => {
-    const data = JSON.parse(event.data);
-    setNodes(data.nodes);
-    setTasks(data.tasks);
-    setResults(data.results);
-    console.log("Mensaje recibido:", data);
-  };
+    ws.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+      setNodes(data.nodes);
+      setTasks(data.tasks);
+      setResults(data.results);
+      console.log("Mensaje recibido:", data);
+    };
 
-  ws.onerror = (error) => {
-    console.error("WebSocket error:", error);
-  };
+    ws.onerror = (error) => {
+      console.error("WebSocket error:", error);
+    };
 
-  ws.onclose = () => {
-    console.log("WebSocket cerrado.");
-  };
-
-  // Supabase: obtener completed tasks y refrescar cada 2 segundos
-  async function fetchCompletedTasks() {
-    const { data, error } = await supabase
-      .from("Log")
-      .select("*");
-    if (!error && data) setCompletedTasks(data as CompletedTask[]);
-  }
-  fetchCompletedTasks();
-  const interval = setInterval(fetchCompletedTasks, 2000);
-
-  return () => {
-    ws.close();
-    clearInterval(interval);
-  };
-}, []); 
+    ws.onclose = () => {
+      console.log("WebSocket cerrado.");
+    };
 
 
+
+
+    return () => {
+      ws.close();
+    };
+  }, []); 
 
   return (
     <div className="p-8 bg-gray-100 min-h-screen text-gray-800">
       <h1 className="text-3xl font-bold mb-6 text-center text-blue-600">Distributed Monitoring System</h1>
-
+      <SnakeViewer />
       <section className="mb-10">
         <h2 className="text-xl font-semibold mb-4 text-gray-700">Node Status</h2>
         <div className="overflow-x-auto">
@@ -109,7 +126,7 @@ useEffect(() => {
                 <th className="p-3">Disk Usage</th>
                 <th className="p-3">Active Tasks</th>
               </tr>
-               </thead>
+            </thead>
             <tbody>
               {Object.entries(nodes).map(([nodeId, stats]) => (
                 <tr
@@ -159,25 +176,25 @@ useEffect(() => {
         </ul>
       </section>
 
-        <section className="mt-6">
-                <h2 className="text-xl font-semibold mb-2">Completed tasks</h2>
-                <select
-                  className="mb-2 px-3 py-1 rounded border border-gray-300"
-                  value={orderBy}
-                  onChange={e => setOrderBy(e.target.value as "node" | "timeAsc" | "timeDesc")}
-                >
-                  <option value="node">Ordenar por nodo</option>
-                  <option value="timeAsc">Tiempo (menor a mayor)</option>
-                  <option value="timeDesc">Tiempo (mayor a menor)</option>
-                </select>
-                <ul className="list-disc list-inside text-sm space-y-1">
-                  {sortedResults.map((task, idx) => (
-                    <li key={task.id}>
-                      Nodo {task.nodo} terminó la tarea: {task.path} en {Number(task.duration).toFixed(2)} s
-                    </li>
-                  ))}
-                </ul>
-              </section>
+      <section className="mt-6">
+        <h2 className="text-xl font-semibold mb-2">Completed tasks</h2>
+        <select
+          className="mb-2 px-3 py-1 rounded border border-gray-300"
+          value={orderBy}
+          onChange={e => setOrderBy(e.target.value as "node" | "timeAsc" | "timeDesc")}
+        >
+          <option value="node">Ordenar por nodo</option>
+          <option value="timeAsc">Tiempo (menor a mayor)</option>
+          <option value="timeDesc">Tiempo (mayor a menor)</option>
+        </select>
+        <ul className="list-disc list-inside text-sm space-y-1">
+          {sortedResults.map((task, idx) => (
+            <li key={task.id}>
+              Nodo {task.nodo} terminó la tarea: {task.path} en {Number(task.duration).toFixed(2)} s
+            </li>
+          ))}
+        </ul>
+      </section>
 
       {selectedNode && nodes[selectedNode] && (
         <NodeModal
@@ -190,15 +207,16 @@ useEffect(() => {
     </div>
   );
 }
+
 function getColor(value?: string): string {
   const num = parseFloat(value || "0");
   if (num < 40) return "text-green-600";
   if (num < 70) return "text-yellow-600";
   return "text-red-600";
 }
- const getBgColor = (value?: string): string => {
-    const num = parseFloat(value || "0");
-    if (num < 40) return "bg-green-100";
-    if (num < 70) return "bg-yellow-100";
-    return "bg-red-100";
-  };
+const getBgColor = (value?: string): string => {
+  const num = parseFloat(value || "0");
+  if (num < 40) return "bg-green-100";
+  if (num < 70) return "bg-yellow-100";
+  return "bg-red-100";
+};
