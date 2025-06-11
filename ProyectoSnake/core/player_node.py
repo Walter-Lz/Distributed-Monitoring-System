@@ -4,7 +4,7 @@ from utils import redis_client
 import os
 import sys
 
-# Ajusta rutas si es necesario (solo si tu lógica está fuera del PYTHONPATH)
+# Ajusta rutas si es necesario
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PROYECTO_SNAKE_PATH = os.path.join(BASE_DIR, "ProyectoSnake")
 if PROYECTO_SNAKE_PATH not in sys.path:
@@ -17,9 +17,9 @@ node_id = "player_node"
 
 PLAYER_TASKS_QUEUE = "player_tasks"
 SNAKE_STATE_KEY = "snake:state"
+GLOBAL_TASKS_QUEUE = "global:unassigned_tasks"  # <- Para enviar tareas de escenario
 
 def move_snake(snake, direction):
-    # Reutilizado de tu código actual
     new_snake = [list(pos) for pos in snake]
     head = new_snake[0].copy()
     if direction == "up":
@@ -31,11 +31,9 @@ def move_snake(snake, direction):
     elif direction == "right":
         head[0] += 1
     new_snake.insert(0, head)
-    new_snake.pop()
-    return new_snake
+    return new_snake  # No hacemos pop todavía
 
 def process_task(data):
-    # Reutilizado y simplificado
     task = json.loads(data)
     if task.get("type") != "snake_move":
         print(f"⚠️ Tipo de tarea no soportado: {task.get('type')}")
@@ -49,15 +47,12 @@ def process_task(data):
         game_state = json.loads(state_json)
     else:
         # Estado inicial si no existe
-        initial_snake = [[5, 5], [5, 4], [5, 3]]
-        initial_objectives = [[10, 10]]
-        initial_obstacles = []
         game_state = {
-            "snake": initial_snake,
-            "food": initial_objectives[0],
+            "snake": [[5, 5], [5, 4], [5, 3]],
+            "food": [10, 10],
             "score": 0,
             "game_over": False,
-            "obstacles": initial_obstacles
+            "obstacles": []
         }
 
     direction = task.get("direction")
@@ -67,8 +62,24 @@ def process_task(data):
     score = game_state.get("score", 0)
     game_over = game_state.get("game_over", False)
 
-    # Mueve la serpiente y actualiza el estado global usando tu lógica
+    # Mueve la snake (no hacemos pop todavía)
     new_snake = move_snake(snake, direction)
+    head = new_snake[0]
+
+    ate_food = (head == food)
+    if ate_food:
+        # No se hace pop -> la snake crece
+        score += 1  # Si quieres sumar puntos al comer
+        print(f"🍏 ¡Comida comida en {food}! Enviando tarea para nueva comida.")
+        # Envía tarea de escenario
+        r.lpush(GLOBAL_TASKS_QUEUE, json.dumps({
+            "type": "scenario_update",
+            "action": "add_food"
+        }))
+    else:
+        new_snake.pop()  # No crece, solo mueve
+
+    # Guarda el nuevo estado
     new_state = create_game_state(new_snake, [food], obstacles, score, game_over)
     r.set(SNAKE_STATE_KEY, json.dumps(new_state))
     print(f"✅ Estado actualizado por {node_id}")
@@ -78,10 +89,11 @@ def main():
     # Si el estado inicial no existe, lo crea:
     if not r.exists(SNAKE_STATE_KEY):
         print("🟢 Inicializando estado inicial de Snake en Redis...")
-        initial_snake = [[5, 5], [5, 4], [5, 3]]
-        initial_objectives = [[10, 10]]
-        initial_obstacles = []
-        initial_state = create_game_state(initial_snake, initial_objectives, initial_obstacles)
+        initial_state = create_game_state(
+            snake=[[5, 5], [5, 4], [5, 3]],
+            food=[[10, 10]],
+            obstacles=[]
+        )
         r.set(SNAKE_STATE_KEY, json.dumps(initial_state))
 
     while True:

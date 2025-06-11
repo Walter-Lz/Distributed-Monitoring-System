@@ -32,11 +32,13 @@ def process_task(data):
             state_json = state_json.decode("utf-8")
         game_state = json.loads(state_json)
     else:
+        # Cuando no existe el estado, crea snake y comida aleatoria
         game_state = create_game_state(
             snake=[[5, 5], [5, 4], [5, 3]],
-            food=[[10, 10]],
+            food=[],
             obstacles=[]
         )
+        game_state = add_food(game_state)  # ← Comida aleatoria
 
     action = task.get("action")
     if action == "add_food":
@@ -58,9 +60,10 @@ def main():
         print("🟢 Inicializando estado inicial de Snake en Redis...")
         initial_state = create_game_state(
             snake=[[5, 5], [5, 4], [5, 3]],
-            food=[[10, 10]],
+            food=[],
             obstacles=[]
         )
+        initial_state = add_food(initial_state)  # ← Comida aleatoria desde el inicio
         r.set(SNAKE_STATE_KEY, json.dumps(initial_state))
 
     while True:
