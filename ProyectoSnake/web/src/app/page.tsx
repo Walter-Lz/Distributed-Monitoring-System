@@ -60,6 +60,19 @@ export default function Home() {
     });
   }
 
+  async function sendReset() {
+  await fetch("http://localhost:8000/snake/move", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      type: "reset_game",
+      player_id: "player1",
+      timestamp: Date.now()
+    }),
+  });
+}
+
+
   // Escuchar teclas para Snake
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -108,12 +121,20 @@ export default function Home() {
     return () => {
       ws.close();
     };
-  }, []); 
+  }, []);
 
   return (
     <div className="p-8 bg-gray-100 min-h-screen text-gray-800">
       <h1 className="text-3xl font-bold mb-6 text-center text-blue-600">Distributed Monitoring System</h1>
       <SnakeViewer />
+      <div className="flex justify-center my-4">
+        <button
+          onClick={sendReset}
+          className="px-4 py-2 bg-blue-600 text-white rounded shadow hover:bg-blue-700 transition"
+        >
+          Reiniciar Juego
+        </button>
+      </div>
       <section className="mb-10">
         <h2 className="text-xl font-semibold mb-4 text-gray-700">Node Status</h2>
         <div className="overflow-x-auto">

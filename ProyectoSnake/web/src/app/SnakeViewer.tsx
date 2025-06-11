@@ -11,19 +11,15 @@ type SnakeState = {
 export default function SnakeViewer() {
   const [state, setState] = useState<SnakeState | null>(null);
 
-useEffect(() => {
-  const ws = new WebSocket("ws://localhost:8000/ws/snake");
-  ws.onmessage = (event) => {
-    try {
-      const data = JSON.parse(event.data);
-      setState(data);
-      console.log("Estado recibido:", data);
-    } catch {}
-  };
-  return () => ws.close();
-}, []);
+  useEffect(() => {
+    const ws = new WebSocket("ws://localhost:8000/ws/snake");
+    ws.onmessage = (event) => {
+      const newState = JSON.parse(event.data);
+      setState(newState);
+    };
+    return () => ws.close();
+  }, []);
 
-  // Dibuja un tablero de 20x20 (ajusta según tu lógica)
   return (
     <div>
       <h2 className="text-xl font-bold mb-2">Snake Game (Distribuido)</h2>

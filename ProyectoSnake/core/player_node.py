@@ -14,7 +14,8 @@ from logic.game_state import create_game_state
 
 r = redis_client.get_redis()
 node_id = "player_node"
-
+BOARD_WIDTH = 20
+BOARD_HEIGHT = 20
 PLAYER_TASKS_QUEUE = "player_tasks"
 SNAKE_STATE_KEY = "snake:state"
 GLOBAL_TASKS_QUEUE = "global:unassigned_tasks"  # <- Para enviar tareas de escenario
@@ -22,6 +23,8 @@ GLOBAL_TASKS_QUEUE = "global:unassigned_tasks"  # <- Para enviar tareas de escen
 def move_snake(snake, direction):
     new_snake = [list(pos) for pos in snake]
     head = new_snake[0].copy()
+
+    # Movimiento normal
     if direction == "up":
         head[1] -= 1
     elif direction == "down":
@@ -30,11 +33,29 @@ def move_snake(snake, direction):
         head[0] -= 1
     elif direction == "right":
         head[0] += 1
+
     new_snake.insert(0, head)
-    return new_snake  # No hacemos pop todavía
+    return new_snake
+
+def reset_game():
+    initial_state = create_game_state(
+        snake=[[5, 5], [5, 4], [5, 3]],
+        food=[[10, 10]],
+        obstacles=[]
+    )
+    initial_state["direction"] = "right"
+    initial_state["game_over"] = False
+    r.set(SNAKE_STATE_KEY, json.dumps(initial_state))
+    print("🔄 Juego reiniciado.")
+
+
 
 def process_task(data):
     task = json.loads(data)
+    if task.get("type") == "reset_game":
+        reset_game()
+        return
+
     if task.get("type") != "snake_move":
         print(f"⚠️ Tipo de tarea no soportado: {task.get('type')}")
         return
@@ -46,41 +67,61 @@ def process_task(data):
             state_json = state_json.decode("utf-8")
         game_state = json.loads(state_json)
     else:
-        # Estado inicial si no existe
         game_state = {
             "snake": [[5, 5], [5, 4], [5, 3]],
             "food": [10, 10],
             "score": 0,
             "game_over": False,
-            "obstacles": []
+            "obstacles": [],
+            "direction": "right"
         }
 
     direction = task.get("direction")
+    if direction is None:
+        direction = game_state.get("direction", "right")
     snake = game_state.get("snake", [[5, 5], [5, 4], [5, 3]])
     food = game_state.get("food", [10, 10])
     obstacles = game_state.get("obstacles", [])
     score = game_state.get("score", 0)
     game_over = game_state.get("game_over", False)
 
+    # No mover si ya es game over
+    if game_over:
+        print("⛔ El juego ya terminó.")
+        return
+
     # Mueve la snake (no hacemos pop todavía)
     new_snake = move_snake(snake, direction)
     head = new_snake[0]
 
-    ate_food = (head == food)
-    if ate_food:
-        # No se hace pop -> la snake crece
-        score += 1  # Si quieres sumar puntos al comer
-        print(f"🍏 ¡Comida comida en {food}! Enviando tarea para nueva comida.")
-        # Envía tarea de escenario
-        r.lpush(GLOBAL_TASKS_QUEUE, json.dumps({
-            "type": "scenario_update",
-            "action": "add_food"
-        }))
-    else:
-        new_snake.pop()  # No crece, solo mueve
+    # Detecta colisión con bordes
+    if (
+        head[0] < 0 or head[0] >= BOARD_WIDTH or
+        head[1] < 0 or head[1] >= BOARD_HEIGHT
+    ):
+        print("💀 ¡Game Over! La serpiente chocó con el borde.")
+        game_over = True
 
-    # Guarda el nuevo estado
+    # Detecta colisión con sí misma
+    if head in new_snake[1:]:
+        print("💀 ¡Game Over! La serpiente chocó consigo misma.")
+        game_over = True
+
+    ate_food = (head == food)
+    if not game_over:
+        if ate_food:
+            score += 1
+            print(f"🍏 ¡Comida comida en {food}! Enviando tarea para nueva comida.")
+            r.lpush(GLOBAL_TASKS_QUEUE, json.dumps({
+                "type": "scenario_update",
+                "action": "add_food"
+            }))
+        else:
+            new_snake.pop()  # No crece, solo mueve
+
+    # Guarda el nuevo estado y la dirección actual
     new_state = create_game_state(new_snake, [food], obstacles, score, game_over)
+    new_state["direction"] = direction
     r.set(SNAKE_STATE_KEY, json.dumps(new_state))
     print(f"✅ Estado actualizado por {node_id}")
 
@@ -94,6 +135,7 @@ def main():
             food=[[10, 10]],
             obstacles=[]
         )
+        initial_state["direction"] = "right"
         r.set(SNAKE_STATE_KEY, json.dumps(initial_state))
 
     while True:

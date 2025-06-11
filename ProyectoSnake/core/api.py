@@ -21,7 +21,7 @@ async def snake_move(move: dict):
     Encola un movimiento de Snake para ser procesado por el sistema distribuido.
     Espera un dict con {type, player_id, direction}
     """
-    r.lpush("global:unassigned_tasks", json.dumps(move))
+    r.lpush("player_tasks", json.dumps(move))  # <-- Cambia aquí la cola
     return {"status": "ok"}
 
 @app.websocket("/ws/snake")
@@ -31,7 +31,6 @@ async def ws_snake(websocket: WebSocket):
         while True:
             state = r.get("snake:state")
             if state:
-                # Si el estado está en bytes, decodifica
                 if isinstance(state, bytes):
                     state = state.decode("utf-8")
                 await websocket.send_text(state)
