@@ -9,7 +9,10 @@ NODE_TIMEOUT = 5  # segundos, tiempo máximo entre heartbeats para considerar un
 
 # Cola global de entrada de tareas (donde la API o scripts depositan tareas)
 UNASSIGNED_TASKS_QUEUE = "global:unassigned_tasks"
+  
 
+
+  
 # Colas específicas para cada tipo de worker
 PLAYER_TASKS_QUEUE = "player_tasks"
 SCENARIO_TASKS_QUEUE = "scenario_tasks"

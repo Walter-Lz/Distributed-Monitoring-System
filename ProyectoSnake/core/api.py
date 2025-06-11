@@ -40,6 +40,9 @@ async def ws_snake(websocket: WebSocket):
     finally:
         await websocket.close()
 
+
+
+#Hola Jorgito
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
