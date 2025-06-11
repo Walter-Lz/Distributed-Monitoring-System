@@ -1,5 +1,6 @@
 import time
 import json
+import psutil 
 from utils import redis_client
 import os
 import sys
@@ -18,6 +19,17 @@ node_id = "scenario_node"
 
 SCENARIO_TASKS_QUEUE = "scenario_tasks"
 SNAKE_STATE_KEY = "snake:state"
+
+def update_node_status(node_id):
+    cpu = psutil.cpu_percent()
+    ram = psutil.virtual_memory().percent
+    r.hset(f"node_stats:{node_id}", mapping={
+        "cpu": cpu,
+        "ram": ram,
+        "last_heartbeat": time.time(),
+        "status": "available",
+        "tasks": 1  # Puedes ajustar esto si quieres contar tareas concurrentes reales
+    })
 
 def process_task(data):
     task = json.loads(data)
@@ -71,6 +83,7 @@ def main():
         if task:
             _, data = task
             process_task(data)
+        update_node_status(node_id)  # <--- NUEVO, se llama en cada ciclo
         time.sleep(0.05)
 
 if __name__ == "__main__":

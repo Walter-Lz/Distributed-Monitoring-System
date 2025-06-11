@@ -1,5 +1,6 @@
 import time
 import json
+import psutil  # <-- NUEVO
 from utils import redis_client
 import os
 import sys
@@ -20,11 +21,20 @@ PLAYER_TASKS_QUEUE = "player_tasks"
 SNAKE_STATE_KEY = "snake:state"
 GLOBAL_TASKS_QUEUE = "global:unassigned_tasks"  # <- Para enviar tareas de escenario
 
+def update_node_status(node_id):
+    cpu = psutil.cpu_percent()
+    ram = psutil.virtual_memory().percent
+    r.hset(f"node_stats:{node_id}", mapping={
+        "cpu": cpu,
+        "ram": ram,
+        "last_heartbeat": time.time(),
+        "status": "available",
+        "tasks": 1  # Puedes mejorar esto si manejas concurrencia
+    })
+
 def move_snake(snake, direction):
     new_snake = [list(pos) for pos in snake]
     head = new_snake[0].copy()
-
-    # Movimiento normal
     if direction == "up":
         head[1] -= 1
     elif direction == "down":
@@ -33,7 +43,6 @@ def move_snake(snake, direction):
         head[0] -= 1
     elif direction == "right":
         head[0] += 1
-
     new_snake.insert(0, head)
     return new_snake
 
@@ -47,8 +56,6 @@ def reset_game():
     initial_state["game_over"] = False
     r.set(SNAKE_STATE_KEY, json.dumps(initial_state))
     print("🔄 Juego reiniciado.")
-
-
 
 def process_task(data):
     task = json.loads(data)
@@ -85,16 +92,13 @@ def process_task(data):
     score = game_state.get("score", 0)
     game_over = game_state.get("game_over", False)
 
-    # No mover si ya es game over
     if game_over:
         print("⛔ El juego ya terminó.")
         return
 
-    # Mueve la snake (no hacemos pop todavía)
     new_snake = move_snake(snake, direction)
     head = new_snake[0]
 
-    # Detecta colisión con bordes
     if (
         head[0] < 0 or head[0] >= BOARD_WIDTH or
         head[1] < 0 or head[1] >= BOARD_HEIGHT
@@ -102,7 +106,6 @@ def process_task(data):
         print("💀 ¡Game Over! La serpiente chocó con el borde.")
         game_over = True
 
-    # Detecta colisión con sí misma
     if head in new_snake[1:]:
         print("💀 ¡Game Over! La serpiente chocó consigo misma.")
         game_over = True
@@ -117,9 +120,8 @@ def process_task(data):
                 "action": "add_food"
             }))
         else:
-            new_snake.pop()  # No crece, solo mueve
+            new_snake.pop()
 
-    # Guarda el nuevo estado y la dirección actual
     new_state = create_game_state(new_snake, [food], obstacles, score, game_over)
     new_state["direction"] = direction
     r.set(SNAKE_STATE_KEY, json.dumps(new_state))
@@ -127,7 +129,6 @@ def process_task(data):
 
 def main():
     print(f"🎤 {node_id} iniciado y esperando tareas...")
-    # Si el estado inicial no existe, lo crea:
     if not r.exists(SNAKE_STATE_KEY):
         print("🟢 Inicializando estado inicial de Snake en Redis...")
         initial_state = create_game_state(
@@ -143,6 +144,7 @@ def main():
         if task:
             _, data = task
             process_task(data)
+        update_node_status(node_id)  # <-- Aquí llamas el update en cada ciclo
         time.sleep(0.05)
 
 if __name__ == "__main__":
