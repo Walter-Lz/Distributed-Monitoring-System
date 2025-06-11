@@ -1,0 +1,40 @@
+version: '3'
+
+services:
+  redis:
+    image: redis:latest
+    ports:
+      - "6379:6379"
+    networks:
+      - dms-network
+
+  node1:
+    build: .
+    depends_on:
+      - redis
+    environment:
+      - REDIS_HOST=redis
+    networks:
+      - dms-network
+
+  node2:
+    build: .
+    depends_on:
+      - redis
+    environment:
+      - REDIS_HOST=redis
+    networks:
+      - dms-network
+
+  node3:
+    build: .
+    depends_on:
+      - redis
+    environment:
+      - REDIS_HOST=redis
+    networks:
+      - dms-network
+
+networks:
+  dms-network:
+    driver: bridge 
